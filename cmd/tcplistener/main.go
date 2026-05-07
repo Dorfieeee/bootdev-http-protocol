@@ -7,6 +7,8 @@ import (
 	"log"
 	"net"
 	"strings"
+
+	"google.com/Dorfieeee/bootdev-http-protocol/internal/request"
 )
 
 func getLinesChannel(f io.ReadCloser) <-chan string {
@@ -54,10 +56,12 @@ func main() {
 			log.Fatalf("Error accepting connection: %v", err)
 		}
 		fmt.Println("Connection establised")
-		linesCh := getLinesChannel(conn)
-		for line := range linesCh {
-			fmt.Println(line)
+		r, err := request.RequestFromReader(conn)
+		if err != nil {
+			fmt.Printf("Error %v\n", err)
 		}
+		fmt.Println("Request line:")
+		fmt.Printf("- Method: %v\n- Target: %v\n- Version: %v\n", r.RequestLine.Method, r.RequestLine.RequestTarget, r.RequestLine.HttpVersion)
 		fmt.Println("Connection closed")
 	}
 }

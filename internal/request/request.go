@@ -43,27 +43,24 @@ func (r *Request) parse(data []byte) (int, error) {
 
 func RequestFromReader(reader io.Reader) (*Request, error) {
 	r := Request{}
-	buffer := bytes.NewBuffer(make([]byte, 8))
+	var buffer bytes.Buffer
 	for r.ParseState != DONE {
 		chunk := make([]byte, 8)
 		nRead, err := reader.Read(chunk)
 		if err != nil {
-			if buffer.Len() > 0 {
-				buffer.Write(chunk)
-				r.parse(buffer.Bytes())
-				buffer.Reset()
-			}
 			if errors.Is(err, io.EOF) {
+				r.ParseState = DONE
 				break
 			}
 			fmt.Printf("Error: %v\n", err)
 			break
 		}
+
 		buffer.Write(chunk[:nRead])
 		nParsed, err := r.parse(buffer.Bytes())
 		if err != nil {
 			fmt.Printf("Error: %v\n", err)
-			break
+			return nil, err
 		}
 		if nParsed > 0 {
 			tmp := buffer.Bytes()
@@ -99,7 +96,7 @@ func parseRequestLine(data []byte) (int, *RequestLine, error) {
 	if versionPart[1] != "1.1" {
 		return 0, nil, fmt.Errorf("Invalid HTTP version")
 	}
-	return len(rl), &RequestLine{
+	return len(data[:idx]) + len(CRLF), &RequestLine{
 		Method:        method,
 		RequestTarget: requestTarget,
 		HttpVersion:   versionPart[1],

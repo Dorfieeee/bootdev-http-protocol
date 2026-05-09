@@ -58,10 +58,16 @@ func main() {
 		fmt.Println("Connection establised")
 		r, err := request.RequestFromReader(conn)
 		if err != nil {
-			fmt.Printf("Error %v\n", err)
+			continue
 		}
 		fmt.Println("Request line:")
 		fmt.Printf("- Method: %v\n- Target: %v\n- Version: %v\n", r.RequestLine.Method, r.RequestLine.RequestTarget, r.RequestLine.HttpVersion)
+		fmt.Println("Headers:")
+		for k, v := range r.Headers {
+			fmt.Printf("- %v: %v\n", k, v)
+		}
+		fmt.Println("Body:")
+		fmt.Printf("%s\n", string(r.Body))
 		fmt.Println("Connection closed")
 	}
 }

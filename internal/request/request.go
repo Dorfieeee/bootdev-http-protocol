@@ -6,12 +6,17 @@ import (
 	"fmt"
 	"io"
 	"regexp"
+	"strconv"
 	"strings"
+
+	"google.com/Dorfieeee/bootdev-http-protocol/internal/headers"
 )
 
 type Request struct {
 	RequestLine RequestLine
-	ParseState  int
+	Headers     headers.Headers
+	Body        []byte
+	parseState  int
 }
 
 type RequestLine struct {
@@ -21,52 +26,94 @@ type RequestLine struct {
 }
 
 const CRLF = "\r\n"
-const INITIALIZED = 0
-const DONE = 1
+
+const (
+	requestStateParsingInitialised int = iota
+	requestStateParsingHeaders
+	requestStateParsingBody
+	requestStateParsingDone
+)
 
 func (r *Request) parse(data []byte) (int, error) {
-	if r.ParseState == DONE {
-		return 0, fmt.Errorf("error: trying to read data in a done state")
-	}
-
-	if r.ParseState == INITIALIZED {
+	switch r.parseState {
+	case requestStateParsingInitialised:
 		n, rl, err := parseRequestLine(data)
 		if err == nil && n > 0 {
 			r.RequestLine = *rl
-			r.ParseState = DONE
+			r.parseState = requestStateParsingHeaders
 		}
 		return n, err
+	case requestStateParsingHeaders:
+		n, done, err := r.Headers.Parse(data)
+		if done {
+			r.parseState = requestStateParsingBody
+			return n, nil
+		}
+		return n, err
+	case requestStateParsingBody:
+		contentLength, err := strconv.Atoi(r.Headers.Get("content-length"))
+		if err != nil || contentLength == 0 {
+			r.parseState = requestStateParsingDone
+			return 0, nil
+		}
+		r.Body = append(r.Body, data...)
+		parsedBytes := len(data)
+		bodyLength := len(r.Body)
+		if bodyLength > contentLength {
+			return 0, fmt.Errorf("Body longer than reported content length")
+		}
+		if bodyLength == contentLength {
+			r.parseState = requestStateParsingDone
+			return parsedBytes, nil
+		}
+		return parsedBytes, nil
+	case requestStateParsingDone:
+		return 0, fmt.Errorf("error: trying to read data in a done state")
+	default:
+		return 0, nil
 	}
-
-	return 0, nil
 }
 
 func RequestFromReader(reader io.Reader) (*Request, error) {
-	r := Request{}
-	var buffer bytes.Buffer
-	for r.ParseState != DONE {
-		chunk := make([]byte, 8)
-		nRead, err := reader.Read(chunk)
+	r := Request{
+		RequestLine: RequestLine{},
+		Headers:     headers.NewHeaders(),
+		parseState:  requestStateParsingInitialised,
+	}
+	bufferSize := 8
+	buffer := make([]byte, bufferSize)
+	cursorIdx := 0
+	for r.parseState != requestStateParsingDone {
+		if cursorIdx+bufferSize >= len(buffer) {
+			resizedBuffer := make([]byte, 2*len(buffer))
+			copy(resizedBuffer, buffer)
+			buffer = resizedBuffer
+		}
+		nRead, err := reader.Read(buffer[cursorIdx:])
 		if err != nil {
 			if errors.Is(err, io.EOF) {
-				r.ParseState = DONE
+				if r.parseState != requestStateParsingDone {
+					return nil, fmt.Errorf("incomplete request, in state: %d, read n bytes on EOF: %d", r.parseState, nRead)
+				}
 				break
 			}
-			fmt.Printf("Error: %v\n", err)
-			break
-		}
-
-		buffer.Write(chunk[:nRead])
-		nParsed, err := r.parse(buffer.Bytes())
-		if err != nil {
-			fmt.Printf("Error: %v\n", err)
 			return nil, err
 		}
-		if nParsed > 0 {
-			tmp := buffer.Bytes()
-			buffer.Reset()
-			buffer.Write(tmp[nParsed:])
+		cursorIdx += nRead
+		bufToParse := buffer[:cursorIdx]
+		totalBytesParsed := 0
+		for r.parseState != requestStateParsingDone {
+			bytesParsed, err := r.parse(bufToParse[totalBytesParsed:])
+			if err != nil {
+				return nil, err
+			}
+			totalBytesParsed += bytesParsed
+			if bytesParsed == 0 {
+				break
+			}
 		}
+		cursorIdx -= totalBytesParsed
+		copy(buffer, buffer[totalBytesParsed:])
 	}
 	return &r, nil
 }

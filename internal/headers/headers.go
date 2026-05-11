@@ -39,11 +39,11 @@ func (h Headers) Parse(data []byte) (n int, done bool, err error) {
 	if len(fieldName) == 0 || len(fieldValue) == 0 {
 		return 0, false, fmt.Errorf("Malformed field line format")
 	}
-	h.Set(fieldName, fieldValue)
+	h.Add(fieldName, fieldValue)
 	return len(data[:idx]) + len(CRLF), false, nil
 }
 
-func (h Headers) Set(key, value string) {
+func (h Headers) Add(key, value string) {
 	key = strings.ToLower(key)
 	prev, exists := h[key]
 	if exists {
@@ -55,6 +55,10 @@ func (h Headers) Set(key, value string) {
 
 func (h Headers) Get(key string) string {
 	return h[strings.ToLower(key)]
+}
+
+func (h Headers) Set(key, value string) {
+	h[strings.ToLower(key)] = value
 }
 
 const validCharsMap = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!#$%&'*+-.^_`|~"
